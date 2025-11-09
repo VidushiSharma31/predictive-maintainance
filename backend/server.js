@@ -1,6 +1,7 @@
 const express = require('express');
 const { MongoClient } = require('mongodb');
 const cors = require('cors');
+const authRoutes = require('./auth.routes');
 require('dotenv').config();
 
 const app = express();
@@ -10,77 +11,69 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// Debug middleware
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`, req.body);
+  next();
+});
+
 // MongoDB Connection
-let db;
 const client = new MongoClient(process.env.MONGODB_URI);
+let db;
 
 async function connectDB() {
   try {
     await client.connect();
     db = client.db('predictive_maintenance');
     console.log('Connected to MongoDB');
+    return true;
   } catch (error) {
     console.error('MongoDB connection error:', error);
+    return false;
   }
 }
 
-connectDB();
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
-// API Routes
+// Auth routes
+app.use('/api/auth', authRoutes);
 
-// Get all machines
+// Protected Routes
 app.get('/api/machines', async (req, res) => {
   try {
     const machines = await db.collection('machines').find({}).toArray();
     res.json(machines);
   } catch (error) {
+    console.error('Error fetching machines:', error);
     res.status(500).json({ error: 'Error fetching machines' });
   }
 });
 
-// Get single machine by ID
-app.get('/api/machines/:id', async (req, res) => {
-  try {
-    const machine = await db.collection('machines').findOne({ _id: req.params.id });
-    res.json(machine);
-  } catch (error) {
-    res.status(500).json({ error: 'Error fetching machine' });
-  }
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ message: 'Something broke!' });
 });
 
-// Add new machine (optional)
-app.post('/api/machines', async (req, res) => {
+// Start server
+async function start() {
   try {
-    const result = await db.collection('machines').insertOne(req.body);
-    res.json(result);
+    const connected = await connectDB();
+    if (!connected) {
+      console.error('Failed to connect to MongoDB. Exiting...');
+      process.exit(1);
+    }
+    
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Error adding machine' });
+    console.error('Server startup error:', error);
+    process.exit(1);
   }
-});
+}
 
-// Update machine (optional)
-app.put('/api/machines/:id', async (req, res) => {
-  try {
-    const result = await db.collection('machines').updateOne(
-      { _id: req.params.id },
-      { $set: req.body }
-    );
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: 'Error updating machine' });
-  }
-});
-
-// Delete machine (optional)
-app.delete('/api/machines/:id', async (req, res) => {
-  try {
-    const result = await db.collection('machines').deleteOne({ _id: req.params.id });
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: 'Error deleting machine' });
-  }
-});
-
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+start();

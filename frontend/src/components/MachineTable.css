@@ -1,0 +1,25 @@
+.machine-table-container {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.table-header {
+  background-color: #f5f5f5;
+  font-weight: bold;
+}
+
+.hover-row:hover {
+  background-color: #f5f5f5;
+}
+
+.status-cell {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.type-L { background-color: #e8f5e9; color: #2e7d32; }
+.type-M { background-color: #fff3e0; color: #ef6c00; }
+.type-H { background-color: #ffebee; color: #c62828; }
