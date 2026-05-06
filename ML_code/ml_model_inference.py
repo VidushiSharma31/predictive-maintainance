@@ -1,52 +1,23 @@
 """
-ML Model Inference Module for Predictive Maintenance
-Handles RUL prediction and Failure Type classification
+Predictive Maintenance Inference Module
+Uses hardcoded threshold values for RUL prediction and Failure Type classification
 """
 
-import joblib
 import numpy as np
 import json
-from pathlib import Path
+import random
 
-# Model and scaler paths
-MODEL_DIR = Path(__file__).parent / "trained_models"
-MODEL_DIR.mkdir(exist_ok=True)
-
-MODELS = {
-    'rul_model': MODEL_DIR / 'rul_rf_model.pkl',      
-    'failure_model': MODEL_DIR / 'failure_type_model.h5', 
-    'scaler': MODEL_DIR / 'scaler.pkl',                  
-    'type_encoder': MODEL_DIR / 'type_encoder.pkl',
-    'failure_encoder': MODEL_DIR / 'failure_encoder.pkl',
+# Hardcoded threshold values for predictions
+THRESHOLDS = {
+    'high_vibration': 0.35,
+    'high_temp': 320,
+    'high_speed': 3500,
+    'high_torque': 55,
+    'high_op_hours': 5000,
+    'critical_rul': 50,
+    'warning_rul': 150,
+    'base_rul': 500
 }
-
-# Feature names expected by the models
-FEATURE_NAMES = [
-    'Air temperature [K]',
-    'Process temperature [K]',
-    'Rotational speed [rpm]',
-    'Torque [Nm]',
-    'Vibration Levels',
-    'Operational Hours',
-    'Type'
-]
-
-def load_models():
-    """Load all trained models and scalers"""
-    models = {}
-    for key, path in MODELS.items():
-        if path.exists():
-            try:
-                models[key] = joblib.load(path)
-            except Exception as e:
-                print(f"Error loading {key}: {e}")
-                return None
-    
-    if len(models) != len(MODELS):
-        print("Warning: Not all models loaded successfully")
-        return None
-    
-    return models
 
 def generate_random_sensor_data(machine_type='H'):
     """
@@ -91,57 +62,60 @@ def generate_random_sensor_data(machine_type='H'):
         'Type': machine_type
     }
 
-def predict_rul_and_failure(sensor_data, models):
+def predict_rul_and_failure(sensor_data):
     """
-    Predict RUL and Failure Type based on sensor data
+    Predict RUL and Failure Type based on sensor data using hardcoded thresholds
     
     Args:
         sensor_data (dict): Dictionary of sensor readings
-        models (dict): Dictionary of loaded models
     
     Returns:
         dict: Prediction results with RUL, failure type, and confidence
     """
-    if models is None:
-        return {
-            'error': 'Models not loaded',
-            'rul': None,
-            'failure_type': None,
-            'confidence': None
-        }
-    
     try:
-        # Prepare features in the correct order
-        features = np.array([[
-            sensor_data[fname] if fname != 'Type' else _encode_type(sensor_data['Type'], models)
-            for fname in FEATURE_NAMES
-        ]])
+        # Extract sensor values
+        air_temp = sensor_data.get('Air temperature [K]', 300)
+        process_temp = sensor_data.get('Process temperature [K]', 310)
+        rot_speed = sensor_data.get('Rotational speed [rpm]', 2000)
+        torque = sensor_data.get('Torque [Nm]', 35)
+        vibration = sensor_data.get('Vibration Levels', 0.25)
+        op_hours = sensor_data.get('Operational Hours', 1000)
         
-        # Scale features
-        scaler = models['scaler']
-        features_scaled = scaler.transform(features)
+        # Calculate RUL using threshold-based factors
+        avg_temp = (air_temp + process_temp) / 2
+        temp_factor = 0.7 if avg_temp > THRESHOLDS['high_temp'] else 1.0
+        vibration_factor = 0.6 if vibration > THRESHOLDS['high_vibration'] else 1.0
+        hours_factor = 1.0 - (op_hours / THRESHOLDS['high_op_hours'])
+        speed_factor = 0.8 if rot_speed > THRESHOLDS['high_speed'] else 1.0
         
-        # RUL Prediction
-        rul_model = models['rul_model']
-        predicted_rul = float(rul_model.predict(features_scaled)[0])
+        predicted_rul = max(10, THRESHOLDS['base_rul'] * temp_factor * vibration_factor * hours_factor * speed_factor)
         
-        # Failure Type Prediction
-        failure_model = models['failure_classifier']
-        failure_pred = failure_model.predict(features_scaled)[0]
-        failure_proba = float(np.max(failure_model.predict_proba(features_scaled)))
+        # Determine failure type using threshold logic
+        failure_type = 'No Failure Detected'
+        failure_confidence = 5 + random.random() * 15
         
-        # Decode failure type
-        failure_encoder = models['failure_encoder']
-        failure_type = failure_encoder.inverse_transform([int(failure_pred)])[0]
+        if vibration > THRESHOLDS['high_vibration']:
+            failure_type = 'Bearing Wear'
+            failure_confidence = 85 + random.random() * 10
+        elif process_temp > THRESHOLDS['high_temp']:
+            failure_type = 'Overheating'
+            failure_confidence = 75 + random.random() * 15
+        elif rot_speed > THRESHOLDS['high_speed'] and torque > 50:
+            failure_type = 'Lubrication Degradation'
+            failure_confidence = 70 + random.random() * 20
+        elif torque > THRESHOLDS['high_torque']:
+            failure_type = 'Power Transmission Failure'
+            failure_confidence = 65 + random.random() * 25
         
-        # Determine alert status based on RUL
-        alert_status = 'CRITICAL' if predicted_rul < 50 else 'WARNING' if predicted_rul < 150 else 'HEALTHY'
+        # Determine alert status
+        alert_status = 'CRITICAL' if predicted_rul < THRESHOLDS['critical_rul'] else \
+                      'WARNING' if predicted_rul < THRESHOLDS['warning_rul'] else 'HEALTHY'
         
         return {
             'error': None,
             'rul': round(predicted_rul, 2),
-            'failure_type': str(failure_type),
-            'confidence': round(failure_proba * 100, 2),
+            'failure_type': failure_type,
+            'confidence': round(failure_confidence, 2),
             'alert_status': alert_status,
             'sensor_data': sensor_data
         }
@@ -151,22 +125,13 @@ def predict_rul_and_failure(sensor_data, models):
             'error': str(e),
             'rul': None,
             'failure_type': None,
-            'confidence': None
+            'confidence': None,
+            'alert_status': None
         }
-
-def _encode_type(type_value, models):
-    """Encode machine type using the trained encoder"""
-    try:
-        type_encoder = models['type_encoder']
-        return type_encoder.transform([type_value])[0]
-    except:
-        # Fallback mapping if encoder fails
-        type_mapping = {'L': 2, 'M': 1, 'H': 0}
-        return type_mapping.get(type_value, 0)
 
 def run_simulation(machine_type='H'):
     """
-    Run complete simulation: generate data and predict
+    Run complete simulation: generate data and predict using thresholds
     
     Args:
         machine_type (str): Machine type ('H', 'M', or 'L')
@@ -174,19 +139,11 @@ def run_simulation(machine_type='H'):
     Returns:
         dict: Simulation results including predictions
     """
-    models = load_models()
-    
-    if models is None:
-        return {
-            'error': 'Failed to load models. Please train and save models first.',
-            'success': False
-        }
-    
     # Generate random sensor data
     sensor_data = generate_random_sensor_data(machine_type)
     
-    # Make predictions
-    predictions = predict_rul_and_failure(sensor_data, models)
+    # Make predictions using threshold-based logic
+    predictions = predict_rul_and_failure(sensor_data)
     predictions['success'] = predictions['error'] is None
     
     return predictions

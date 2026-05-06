@@ -25,7 +25,7 @@ let db;
 async function connectDB() {
   try {
     await client.connect();
-    db = client.db('predictive_maintenance');
+    db = client.db('mydb');
     console.log('Connected to MongoDB');
     return true;
   } catch (error) {
